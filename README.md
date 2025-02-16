@@ -2,6 +2,5 @@
 
 RSS feed for https://xinwen.nl/
 
-
 ---
 Inspired by https://github.com/zhangyoufu/lwn
