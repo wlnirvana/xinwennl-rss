@@ -1,0 +1,52 @@
+on:
+  push:
+  schedule:
+  - cron: '12,27,42,57 * * * *'
+concurrency: cron
+defaults:
+  run:
+    shell: bash
+jobs:
+  cron:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # to update state & gh-pages branch
+      pages: write    # to deploy to Pages
+      id-token: write # to verify the deployment originates from an appropriate source
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up worktrees
+      run: |-
+        git fetch --no-tags --prune --depth=1 origin +refs/heads/*:refs/remotes/origin/*
+        git worktree add gh-pages gh-pages
+        git worktree add state state
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+    - name: Install dependencies
+      run: pip3 install -r requirements.txt
+    - name: Check xinwen.nl
+      timeout-minutes: 5
+      run: ./xinwennl_rss.py
+    - name: Commit if dirty
+      run: |-
+        git config --global user.name 'GitHub Actions'
+        git config --global user.email "$(whoami)@$(hostname --fqdn)"
+        dirty() {
+        	[ -n "$(git status --porcelain)" ]
+        }
+        push() {
+        	git add --all
+        	git commit --amend --reset-author --message "${2:-automatic commit}"
+        	git push --force
+        }
+        (cd gh-pages; if dirty; then push; echo "DEPLOY=1" >> "${GITHUB_ENV}"; fi)
+        (cd state; if dirty; then push; fi)
+    - uses: actions/configure-pages@v5
+      if: env.DEPLOY == '1'
+    - uses: actions/upload-pages-artifact@v3
+      if: env.DEPLOY == '1'
+      with:
+        path: gh-pages
+    - uses: actions/deploy-pages@v4
+      if: env.DEPLOY == '1'
