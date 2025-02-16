@@ -1,4 +1,4 @@
-# poor man's xinwen.nl RSS feed
+# Poor man's xinwen.nl RSS feed
 
 RSS feed for https://xinwen.nl/
 
