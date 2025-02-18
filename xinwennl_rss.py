@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TypedDict, cast
 
 import requests
@@ -83,7 +83,10 @@ def generate_rss(articles: list[Article], output_path: str) -> None:
         try:
             pub_date = datetime.fromisoformat(art["pub_date"])
         except Exception:
-            pub_date = datetime.now()
+            pub_date = datetime.now(timezone.utc)
+       # If pub_date is naive, attach UTC as the default timezone
+        if pub_date.tzinfo is None:
+            pub_date = pub_date.replace(tzinfo=timezone.utc)
         fe.pubDate(pub_date)
         # Using title as description; adjust as needed.
         fe.description(art["title"])
