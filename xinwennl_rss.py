@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 import json
 import os
+import urllib.parse
 from datetime import datetime, timezone
-from typing import TypedDict, cast
+from typing import TypedDict
 
 import requests
 from bs4 import BeautifulSoup
@@ -32,11 +33,28 @@ def parse_articles(html: str) -> list[Article]:
         if not h3:
             continue
         title = h3.get_text(strip=True)
+
+        # Extract the original article URL from the green button
+        orig_link = item.select_one("a.button-green")
+        orig_url = orig_link.get("href") if orig_link else ""
+        # If orig_url is a list, take the first element
+        if isinstance(orig_url, list):
+            orig_url = orig_url[0]
+
         # Get the Google Translate link (it has class "button-black")
         translate_link = item.select_one("a.button-black")
         if not translate_link:
             continue
-        translate_url = cast(str, translate_link.get("href"))
+        raw_translate_url = translate_link.get("href", "")
+        if isinstance(raw_translate_url, list):
+            raw_translate_url = raw_translate_url[0]
+
+        # If the original URL is from NL Times, construct a Yandex translate URL
+        if orig_url and "nltimes.nl" in orig_url:
+            encoded_url = urllib.parse.quote(orig_url, safe="")
+            translate_url = f"https://translate.yandex.com/en/translate?url={encoded_url}&lang=en-zh"
+        else:
+            translate_url = raw_translate_url
 
         # Try to extract publication date from the element with class including "tm-text-green"
         pub_date = None
@@ -84,7 +102,7 @@ def generate_rss(articles: list[Article], output_path: str) -> None:
             pub_date = datetime.fromisoformat(art["pub_date"])
         except Exception:
             pub_date = datetime.now(timezone.utc)
-       # If pub_date is naive, attach UTC as the default timezone
+        # If pub_date is naive, attach UTC as the default timezone
         if pub_date.tzinfo is None:
             pub_date = pub_date.replace(tzinfo=timezone.utc)
         fe.pubDate(pub_date)
