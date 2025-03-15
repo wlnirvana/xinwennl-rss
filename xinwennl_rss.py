@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import json
 import os
-import urllib.parse
 from datetime import datetime, timezone
 from typing import TypedDict
 
@@ -14,6 +13,7 @@ class Article(TypedDict):
     title: str
     translate_url: str
     pub_date: str
+    source_website: str
 
 
 def fetch_html(url: str) -> str:
@@ -40,6 +40,8 @@ def parse_articles(html: str) -> list[Article]:
         # If orig_url is a list, take the first element
         if isinstance(orig_url, list):
             orig_url = orig_url[0]
+        elif orig_url is None:
+            continue
 
         # Get the Google Translate link (it has class "button-black")
         translate_link = item.select_one("a.button-black")
@@ -50,11 +52,24 @@ def parse_articles(html: str) -> list[Article]:
             raw_translate_url = raw_translate_url[0]
 
         # If the original URL is from NL Times, construct a Yandex translate URL
-        if orig_url and "nltimes.nl" in orig_url:
-            encoded_url = urllib.parse.quote(orig_url, safe="")
-            translate_url = f"https://translate.yandex.com/en/translate?url={encoded_url}&lang=en-zh"
+        # if orig_url and "nltimes.nl" in orig_url:
+        #     encoded_url = urllib.parse.quote(orig_url, safe="")
+        #     translate_url = f"https://translate.yandex.com/en/translate?url={encoded_url}&lang=en-zh"
+        #     continue
+        # else:
+        #     translate_url = raw_translate_url
+
+        # Looks like google translate issue of nltimes is fixed, so we can use it directly
+        translate_url = raw_translate_url
+
+        if "nltimes.nl" in orig_url:
+            source_website = "NL Times"
+        elif "iamexpat.nl" in orig_url:
+            source_website = "IamExpat"
+        elif "dutchnews.nl" in orig_url:
+            source_website = "Dutch News"
         else:
-            translate_url = raw_translate_url
+            source_website = "Unknown"
 
         # Try to extract publication date from the element with class including "tm-text-green"
         pub_date = None
@@ -76,6 +91,7 @@ def parse_articles(html: str) -> list[Article]:
                 "title": title,
                 "translate_url": translate_url,
                 "pub_date": pub_date.isoformat(),
+                "source_website": source_website,
             }
         )
     return articles
@@ -108,6 +124,12 @@ def generate_rss(articles: list[Article], output_path: str) -> None:
         fe.pubDate(pub_date)
         # Using title as description; adjust as needed.
         fe.description(art["title"])
+        fe.author(
+            {
+                "name": art["source_website"],
+                "email": f"{art['source_website']}@{art['source_website']}.com",
+            }
+        )
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     fg.rss_file(output_path)
