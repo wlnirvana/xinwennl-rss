@@ -1,7 +1,7 @@
 on:
   push:
   schedule:
-  - cron: '12,27,42,57 * * * *'
+  - cron: '0 12 * * *'
 concurrency: cron
 defaults:
   run:
@@ -25,9 +25,11 @@ jobs:
         python-version: '3.x'
     - name: Install dependencies
       run: pip3 install -r requirements.txt
-    - name: Check xinwen.nl
-      timeout-minutes: 5
-      run: ./xinwennl_rss.py
+    - name: Fetch RSS feeds and translate
+      timeout-minutes: 10
+      env:
+        GOOGLE_TRANSLATE_API_KEY: ${{ secrets.GOOGLE_TRANSLATE_API_KEY }}
+      run: python3 xinwennl_rss.py
     - name: Commit if dirty
       run: |-
         git config --global user.name 'GitHub Actions'
