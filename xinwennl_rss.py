@@ -277,7 +277,7 @@ def generate_rss(articles: list[Article], output_path: str) -> None:
         fe = fg.add_entry()
         fe.title(art["title_zh"])
         fe.link(href=art["translate_link"])
-        fe.guid(art["fingerprint"])
+        fe.guid(art.get("fingerprint", art.get("link", "")))
         try:
             pub_date = datetime.fromisoformat(art["pub_date"])
         except (ValueError, TypeError):
