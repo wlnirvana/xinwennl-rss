@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class Article(TypedDict):
+    fingerprint: str
     title: str
     title_zh: str
     description: str
@@ -68,8 +69,118 @@ def translate_text(text: str, api_key: str, target_lang: str = 'zh') -> str:
         return text
 
 
-def fetch_rss_feeds(api_key: str) -> list[Article]:
-    """Fetch and parse RSS feeds from the two sources"""
+def process_feed_entry(entry, source: str, api_key: str, existing_fingerprints: set[str]) -> Article | None:
+    """Process a single RSS feed entry into an Article.
+    
+    Args:
+        entry: RSS feed entry
+        source: Source website name
+        api_key: Google Translate API key
+        existing_fingerprints: Set of existing article fingerprints (IDs or links)
+        
+    Returns:
+        Article if successfully processed and new, None if skipped
+    """
+    # Get title and skip if empty
+    title = entry.get('title', '').strip()
+    if not title:
+        return None
+    
+    # Get clean description
+    description = entry.get('summary', '') or entry.get('description', '')
+    if description:
+        soup = BeautifulSoup(description, 'html.parser')
+        description = soup.get_text(strip=True)
+    
+    # Get unique fingerprint (prefer GUID/ID, fallback to link)
+    article_fingerprint = entry.get('guid') or entry.get('id') or entry.get('link', '')
+    original_link = entry.get('link', '')
+    
+    # Skip if we already have this article
+    if article_fingerprint in existing_fingerprints:
+        logger.info(f"Skipping existing article: {title[:50]}...")
+        return None
+    
+    # Translate title and description
+    logger.info(f"Translating title: {title[:50]}...")
+    title_zh = translate_text(title, api_key)
+    
+    if description:
+        logger.info(f"Translating description ({len(description)} chars)")
+        description_zh = translate_text(description, api_key)
+    else:
+        description_zh = ''
+    
+    # Create Google Translate link for the original URL
+    encoded_url = quote(original_link, safe='')
+    translate_link = f"https://translate.google.com/translate?sl=en&tl=zh&u={encoded_url}"
+    
+    # Parse publication date
+    pub_date = datetime.now(timezone.utc)
+    if hasattr(entry, 'published_parsed') and entry.published_parsed:
+        try:
+            pub_date = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+        except (ValueError, TypeError, OverflowError):
+            pass
+    elif hasattr(entry, 'updated_parsed') and entry.updated_parsed:
+        try:
+            pub_date = datetime(*entry.updated_parsed[:6], tzinfo=timezone.utc)
+        except (ValueError, TypeError, OverflowError):
+            pass
+    
+    return {
+        "fingerprint": article_fingerprint,
+        "title": title,
+        "title_zh": title_zh,
+        "description": description,
+        "description_zh": description_zh,
+        "link": original_link,
+        "translate_link": translate_link,
+        "pub_date": pub_date.isoformat(),
+        "source_website": source,
+    }
+
+
+def fetch_single_feed(feed_url: str, source: str, api_key: str, existing_fingerprints: set[str]) -> list[Article]:
+    """Fetch and process a single RSS feed.
+    
+    Args:
+        feed_url: URL of the RSS feed
+        source: Source website name
+        api_key: Google Translate API key
+        existing_fingerprints: Set of existing article fingerprints (IDs or links)
+        
+    Returns:
+        List of new articles from this feed
+    """
+    logger.info(f"Fetching RSS feed from {source}: {feed_url}")
+    articles = []
+    
+    try:
+        feed = feedparser.parse(feed_url)
+        logger.info(f"Successfully parsed {len(feed.entries)} entries from {source}")
+        
+        for entry in feed.entries:
+            article = process_feed_entry(entry, source, api_key, existing_fingerprints)
+            if article:
+                articles.append(article)
+                
+    except (requests.RequestException, ValueError, KeyError) as e:
+        logger.error(f"Failed to fetch {feed_url}: {e}")
+    
+    return articles
+
+
+def fetch_rss_feeds(api_key: str, existing_articles: list[Article] = None) -> list[Article]:
+    """Fetch and parse RSS feeds from multiple sources
+    
+    Args:
+        api_key: Google Translate API key
+        existing_articles: Existing articles to check for duplicates
+        
+    Returns:
+        List of all articles (existing + new)
+    """
     logger.info("Starting RSS feed fetching and translation")
     feeds = [
         ("https://nltimes.nl/rssfeed2", "NL Times"),
@@ -77,72 +188,54 @@ def fetch_rss_feeds(api_key: str) -> list[Article]:
         # ("https://www.theguardian.com/world/netherlands/rss", "The Guardian")  # Commented out - infrequent updates
     ]
     
-    articles: list[Article] = []
+    if existing_articles is None:
+        existing_articles = []
     
+    # Create a set of existing article IDs or fallback links for fast lookup
+    existing_fingerprints = {article.get('fingerprint', article.get('link', '')) for article in existing_articles}
+    
+    # Fetch articles from all feeds
+    new_articles: list[Article] = []
     for feed_url, source in feeds:
-        logger.info(f"Fetching RSS feed from {source}: {feed_url}")
-        try:
-            feed = feedparser.parse(feed_url)
-            logger.info(f"Successfully parsed {len(feed.entries)} entries from {source}")
-            for entry in feed.entries:
-                # Get title and description
-                title = entry.get('title', '').strip()
-                description = entry.get('summary', '') or entry.get('description', '')
-                
-                # Clean HTML from description if present
-                if description:
-                    soup = BeautifulSoup(description, 'html.parser')
-                    description = soup.get_text(strip=True)
-                
-                # Skip if no title
-                if not title:
-                    continue
-                
-                # Translate title and description
-                logger.info(f"Translating title: {title[:50]}...")
-                title_zh = translate_text(title, api_key)
-                
-                if description:
-                    logger.info(f"Translating description ({len(description)} chars)")
-                    description_zh = translate_text(description, api_key)
-                else:
-                    description_zh = ''
-                
-                # Create Google Translate link for the original URL
-                original_link = entry.get('link', '')
-                encoded_url = quote(original_link, safe='')
-                translate_link = f"https://translate.google.com/translate?sl=en&tl=zh&u={encoded_url}"
-                
-                # Parse publication date
-                pub_date = datetime.now(timezone.utc)
-                if hasattr(entry, 'published_parsed') and entry.published_parsed:
-                    try:
-                        pub_date = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
-                    except (ValueError, TypeError, OverflowError):
-                        pass
-                elif hasattr(entry, 'updated_parsed') and entry.updated_parsed:
-                    try:
-                        pub_date = datetime(*entry.updated_parsed[:6], tzinfo=timezone.utc)
-                    except (ValueError, TypeError, OverflowError):
-                        pass
-                
-                articles.append({
-                    "title": title,
-                    "title_zh": title_zh,
-                    "description": description,
-                    "description_zh": description_zh,
-                    "link": original_link,
-                    "translate_link": translate_link,
-                    "pub_date": pub_date.isoformat(),
-                    "source_website": source,
-                })
-        except (requests.RequestException, ValueError, KeyError) as e:
-            logger.error(f"Failed to fetch {feed_url}: {e}")
+        feed_articles = fetch_single_feed(feed_url, source, api_key, existing_fingerprints)
+        new_articles.extend(feed_articles)
+    
+    # Combine existing and new articles
+    all_articles = existing_articles + new_articles
     
     # Sort by publication date, newest first
-    articles.sort(key=lambda x: x['pub_date'], reverse=True)
-    logger.info(f"Successfully processed {len(articles)} total articles")
-    return articles
+    all_articles.sort(key=lambda x: x['pub_date'], reverse=True)
+    
+    # Keep only the latest 77 articles
+    if len(all_articles) > 77:
+        all_articles = all_articles[:77]
+        logger.info(f"Truncated to latest 77 articles")
+    
+    logger.info(f"Successfully processed {len(new_articles)} new articles, {len(all_articles)} total articles")
+    return all_articles
+
+
+def load_existing_state(path: str) -> list[Article]:
+    """Load existing article state from JSON file.
+    
+    Args:
+        path: Path to existing state file
+        
+    Returns:
+        List of existing articles, empty list if file doesn't exist
+    """
+    if not os.path.exists(path):
+        logger.info(f"No existing state found at {path}")
+        return []
+    
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        logger.info(f"Loaded {len(data)} existing articles from {path}")
+        return data
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(f"Failed to load existing state from {path}: {e}")
+        return []
 
 
 def save_json(data: list[Article], path: str) -> None:
@@ -177,6 +270,7 @@ def generate_rss(articles: list[Article], output_path: str) -> None:
         fe = fg.add_entry()
         fe.title(art["title_zh"])
         fe.link(href=art["translate_link"])
+        fe.guid(art["fingerprint"])
         try:
             pub_date = datetime.fromisoformat(art["pub_date"])
         except (ValueError, TypeError):
@@ -211,10 +305,13 @@ def main() -> None:
         raise ValueError("GOOGLE_TRANSLATE_API_KEY environment variable is required")
     
     try:
-        # Fetch and translate articles from RSS feeds
-        articles = fetch_rss_feeds(api_key)
+        # Load existing articles state
+        existing_articles = load_existing_state("state/articles.json")
         
-        # Save the parsed articles state
+        # Fetch and translate new articles from RSS feeds
+        articles = fetch_rss_feeds(api_key, existing_articles)
+        
+        # Save the updated articles state
         save_json(articles, "state/articles.json")
         
         # Generate RSS feed from the JSON state
