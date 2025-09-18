@@ -1,4 +1,11 @@
-#!/usr/bin/env python3
+# /// script
+# dependencies = [
+#   "beautifulsoup4==4.13.5",
+#   "feedgen==1.0.0",
+#   "requests==2.32.5",
+#   "feedparser==6.0.12"
+# ]
+# ///
 
 import json
 import logging
