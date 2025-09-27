@@ -1,6 +1,6 @@
 # /// script
 # dependencies = [
-#   "beautifulsoup4==4.13.5",
+#   "beautifulsoup4==4.14.0",
 #   "feedgen==1.0.0",
 #   "requests==2.32.5",
 #   "feedparser==6.0.12"
