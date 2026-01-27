@@ -35,7 +35,7 @@ jobs:
       uses: astral-sh/setup-uv@v7
       with:
         # pin to 0.8.18, latest as of 2025/09/18
-        version: "0.9.26"
+        version: "0.9.27"
     - name: Fetch RSS feeds and translate
       timeout-minutes: 10
       env:
