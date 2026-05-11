@@ -2,7 +2,7 @@
 # dependencies = [
 #   "beautifulsoup4==4.14.3",
 #   "feedgen==1.0.0",
-#   "requests==2.33.1",
+#   "requests==2.34.0",
 #   "feedparser==6.0.12"
 # ]
 # ///
