@@ -3,7 +3,7 @@
 #   "beautifulsoup4==4.15.0",
 #   "feedgen==1.0.0",
 #   "requests==2.34.2",
-#   "feedparser==6.0.13"
+#   "feedparser==6.0.14"
 # ]
 # ///
 
